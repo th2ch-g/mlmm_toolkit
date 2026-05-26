@@ -81,6 +81,31 @@ from pysisyphus.constants import BOHR2ANG, ANG2BOHR, AU2EV, AU2KCALPERMOL
 from pysisyphus.elem_data import COVALENT_RADII as _COVALENT_RADII_BOHR
 
 
+def _auto_torch_device(prefer: str = "auto", cuda_idx: int = 0) -> tuple[str, "torch.device"]:
+    """Pick the best available torch device, preferring CUDA, then MPS, then CPU.
+
+    Returns ``(device_str, torch.device)`` where ``device_str`` is the canonical
+    short name ("cuda" / "mps" / "cpu") and the ``torch.device`` is what should
+    be passed to model factories.
+
+    MPS (Metal Performance Shaders) is Apple Silicon's GPU backend. Some torch
+    operators are still unimplemented on MPS; set ``PYTORCH_ENABLE_MPS_FALLBACK=1``
+    to silently fall back to CPU for those ops.
+    """
+    if prefer == "auto":
+        if torch.cuda.is_available():
+            return ("cuda", torch.device(f"cuda:{cuda_idx}"))
+        mps_backend = getattr(torch.backends, "mps", None)
+        if mps_backend is not None and mps_backend.is_available():
+            return ("mps", torch.device("mps"))
+        return ("cpu", torch.device("cpu"))
+    if prefer == "cuda":
+        return ("cuda", torch.device(f"cuda:{cuda_idx}"))
+    if prefer == "mps":
+        return ("mps", torch.device("mps"))
+    return ("cpu", torch.device("cpu"))
+
+
 def _get_g_factor(qm1_elem: str, mm_elem: str, link_elem: str = "H") -> float:
     """Compute Morokuma/Dapprich g-factor for link atom placement.
 
@@ -202,7 +227,7 @@ class _UMABackend(_MLBackend):
                 "and ensure Hugging Face authentication is configured."
             )
         self._device = ml_device
-        device_str = "cuda" if ml_device.type == "cuda" else "cpu"
+        device_str = ml_device.type  # "cuda" / "mps" / "cpu"
         self._AtomicData = AtomicData
         self._data_list_collater = data_list_collater
         self.predictor = pretrained_mlip.get_predict_unit(uma_model, device=device_str)
@@ -330,7 +355,7 @@ class _OrbBackend(_ASEMLBackend):
         from orb_models.forcefield import pretrained
         from orb_models.forcefield.calculator import ORBCalculator
 
-        device_str = "cuda" if ml_device.type == "cuda" else "cpu"
+        device_str = ml_device.type  # "cuda" / "mps" / "cpu"
         orbff = getattr(pretrained, orb_model)(device=device_str)
         self._ase_calc = ORBCalculator(orbff, device=device_str)
         self._device = ml_device
@@ -357,7 +382,7 @@ class _MACEBackend(_ASEMLBackend):
             )
         from mace.calculators import mace_off, mace_mp, mace_anicc
 
-        device_str = "cuda" if ml_device.type == "cuda" else "cpu"
+        device_str = ml_device.type  # "cuda" / "mps" / "cpu"
         model_lower = mace_model.lower()
 
         # Resolve model name to the appropriate factory
@@ -407,7 +432,7 @@ class _AIMNet2Backend(_ASEMLBackend):
             )
         from aimnet.calculators import AIMNet2Calculator
 
-        device_str = "cuda" if ml_device.type == "cuda" else "cpu"
+        device_str = ml_device.type  # "cuda" / "mps" / "cpu"
         self._ase_calc = AIMNet2Calculator(model=aimnet2_model, device=device_str)
         self._device = ml_device
         self._model_charge = model_charge
@@ -1112,10 +1137,7 @@ class MLMMCore:
         if self.mm_fd_dir and not os.path.exists(self.mm_fd_dir):
             os.makedirs(self.mm_fd_dir, exist_ok=True)
 
-        if ml_device == "auto":
-            ml_device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.device_str = ml_device
-        self.ml_device = torch.device(f"cuda:{ml_cuda_idx}" if ml_device == "cuda" else "cpu")
+        self.device_str, self.ml_device = _auto_torch_device(ml_device, ml_cuda_idx)
 
         self.model_charge = int(0 if model_charge is None else model_charge)
         self.model_mult = int(model_mult)

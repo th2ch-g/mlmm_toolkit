@@ -2422,8 +2422,10 @@ def _collect_environment_info() -> dict:
     try:
         import torch
         cuda_ok = torch.cuda.is_available()
-        env["device"] = "cuda" if cuda_ok else "cpu"
+        mps_backend = getattr(torch.backends, "mps", None)
+        mps_ok = bool(mps_backend is not None and mps_backend.is_available())
         if cuda_ok:
+            env["device"] = "cuda"
             try:
                 env["gpu_name"] = torch.cuda.get_device_name(0)
                 props = torch.cuda.get_device_properties(0)
@@ -2433,6 +2435,11 @@ def _collect_environment_info() -> dict:
             except Exception:
                 pass
             env["cuda_version"] = getattr(torch.version, "cuda", None) or "unknown"
+        elif mps_ok:
+            env["device"] = "mps"
+            env["gpu_name"] = "Apple Silicon (Metal Performance Shaders)"
+        else:
+            env["device"] = "cpu"
     except Exception:
         env["device"] = "cpu"
     try:
