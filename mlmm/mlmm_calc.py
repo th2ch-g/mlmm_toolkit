@@ -380,28 +380,33 @@ class _MACEBackend(_ASEMLBackend):
                 "mace-torch is required for the MACE backend. "
                 "Install with `pip install mace-torch`."
             )
-        from mace.calculators import mace_off, mace_mp, mace_anicc
+        from mace.calculators import mace_anicc, mace_mp, mace_off, mace_omol
 
         device_str = ml_device.type  # "cuda" / "mps" / "cpu"
         model_lower = mace_model.lower()
 
-        # Resolve model name to the appropriate factory
+        # Resolve model name to the appropriate factory.
         if model_lower.startswith("mp:") or model_lower.startswith("mace-mp"):
             model_name = mace_model.split(":", 1)[-1] if ":" in mace_model else mace_model
             self._ase_calc = mace_mp(
                 model=model_name, device=device_str, default_dtype=mace_dtype
             )
+        elif model_lower.startswith("anicc") or model_lower.startswith("mace-anicc"):
+            self._ase_calc = mace_anicc(device=device_str, default_dtype=mace_dtype)
+        elif model_lower.startswith("omol") or model_lower.startswith("mace-omol"):
+            # MACE-OMOL lives in mace.calculators.mace_omol (separate from
+            # mace_off, which only knows MACE-OFF23 small/medium/large).
+            # Map user-facing labels like "MACE-OMOL-0" / "omol" onto
+            # mace_omol's "extra_large" alias.
+            omol_aliases = {"mace-omol-0", "mace-omol", "omol", "extra_large"}
+            omol_arg = None if model_lower in omol_aliases else mace_model
+            self._ase_calc = mace_omol(
+                model=omol_arg, device=device_str, default_dtype=mace_dtype
+            )
         elif model_lower.startswith("off:") or model_lower.startswith("mace-off"):
             model_name = mace_model.split(":", 1)[-1] if ":" in mace_model else mace_model
             self._ase_calc = mace_off(
                 model=model_name, device=device_str, default_dtype=mace_dtype
-            )
-        elif model_lower.startswith("anicc") or model_lower.startswith("mace-anicc"):
-            self._ase_calc = mace_anicc(device=device_str, default_dtype=mace_dtype)
-        elif model_lower.startswith("omol") or model_lower.startswith("mace-omol"):
-            # MACE-OMOL uses mace_off with the omol model
-            self._ase_calc = mace_off(
-                model=mace_model, device=device_str, default_dtype=mace_dtype
             )
         else:
             # Treat as a local model file or direct mace_off model

@@ -33,7 +33,7 @@ classifiers = [
 ]
 dependencies = [
     # mlmm core dependencies
-    "fairchem-core",
+    "fairchem-core>=2.20.0",
     "torch>=2.6.0",
     "torch_geometric",
     "torch_scatter",
